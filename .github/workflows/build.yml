@@ -28,11 +28,11 @@ jobs:
         with:
           channel: "stable"
 
-      - name: Install Flet & Video Plugin
-        run: pip install --upgrade flet flet-video
+      - name: Install Flet
+        run: pip install --upgrade flet
 
       - name: Build APK
-        run: yes | flet build apk --yes || yes | flet build apk
+        run: yes | flet build apk --verbose || yes | flet build apk
         env:
           CI: true
 
