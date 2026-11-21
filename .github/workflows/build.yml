@@ -23,6 +23,9 @@ jobs:
           distribution: "zulu"
           java-version: "17"
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -32,7 +35,7 @@ jobs:
         run: pip install --upgrade flet
 
       - name: Build APK
-        run: yes | flet build apk --verbose || yes | flet build apk
+        run: yes | flet build apk --yes || yes | flet build apk
         env:
           CI: true
 
@@ -41,3 +44,4 @@ jobs:
         with:
           name: Resolve-Studio-3D-Pro-APK
           path: build/apk/*.apk
+
