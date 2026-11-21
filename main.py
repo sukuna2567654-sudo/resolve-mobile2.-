@@ -1,9 +1,18 @@
 import copy
 import math
+import os
 import re
 import threading
 import time
 import flet as ft
+
+# Safe import for real Android video playback (falls back cleanly if unavailable)
+try:
+    import flet_video as fv
+    HAS_FLET_VIDEO = True
+except ImportError:
+    fv = None
+    HAS_FLET_VIDEO = False
 
 
 CLIP_COLORS = {
@@ -27,28 +36,29 @@ COLOR_LOOKS = {
 }
 
 FUSION_NODE_CATALOG = [
-    {"type": "4K UltraSmooth AI", "category": "Custom AI", "color": "#D32F2F", "desc": "Upscales to 3840x2160 4K + 60fps Optical Flow smoothing"},
-    {"type": "PuppetPin3D", "category": "3D Mesh", "color": "#AD1457", "desc": "3D mesh warp pins to bend & keyframe limbs/objects in X/Y/Z"},
-    {"type": "Camera3D", "category": "3D", "color": "#00838F", "desc": "3D virtual camera with FOV, Z-depth & perspective control"},
-    {"type": "ImagePlane3D", "category": "3D", "color": "#00695C", "desc": "Places 2D video clip into full 3D X/Y/Z space"},
-    {"type": "Shape3D", "category": "3D", "color": "#0277BD", "desc": "3D cube, sphere, cylinder & plane geometry generator"},
-    {"type": "Merge3D", "category": "3D", "color": "#00897B", "desc": "Combines multiple 3D cameras, lights & objects into one scene"},
-    {"type": "PointLight3D", "category": "3D", "color": "#F57F17", "desc": "3D scene lighting with shadow & intensity control"},
-    {"type": "Renderer3D", "category": "3D", "color": "#283593", "desc": "Renders 3D scene camera view back into 2D 4K output"},
-    {"type": "Transform", "category": "2D", "color": "#2980B9", "desc": "2D Position, Zoom, Rotation, Anchor & Flip"},
-    {"type": "ColorCorrector", "category": "Color", "color": "#8E44AD", "desc": "Node-based Hue, Saturation, Contrast & Gain"},
-    {"type": "OpticalFlow", "category": "Retime", "color": "#16A085", "desc": "Motion-estimated frame interpolation for silky smooth motion"},
-    {"type": "Merge", "category": "Composite", "color": "#D35400", "desc": "Combines Foreground over Background with blend modes"},
-    {"type": "Blur / Glow", "category": "Filter", "color": "#2C3E50", "desc": "Gaussian blur and cinematic highlight bloom"},
-    {"type": "DeltaKeyer", "category": "Matte", "color": "#27AE60", "desc": "Clean green/blue screen chroma key extraction"},
-    {"type": "Text+", "category": "Generator", "color": "#C0392B", "desc": "3D extruded vector title & anime caption typography"},
-    {"type": "Tracker", "category": "Tracking", "color": "#546E7A", "desc": "Point & planar motion tracking for callouts"},
+    {"type": "4K UltraSmooth AI", "category": "Custom AI", "color": "#D32F2F", "param_name": "4K Sharpness & Smooth", "default_val": 90, "desc": "Upscales to 3840x2160 4K + 60fps Optical Flow smoothing"},
+    {"type": "PuppetPin3D", "category": "3D Mesh", "color": "#AD1457", "param_name": "Mesh Bend Stiffness", "default_val": 75, "desc": "3D mesh warp pins to bend & keyframe limbs/objects in X/Y/Z"},
+    {"type": "Camera3D", "category": "3D", "color": "#00838F", "param_name": "Camera Field of View", "default_val": 50, "desc": "3D virtual camera with FOV, Z-depth & perspective control"},
+    {"type": "ImagePlane3D", "category": "3D", "color": "#00695C", "param_name": "3D Plane Depth Scale", "default_val": 100, "desc": "Places 2D video clip into full 3D X/Y/Z space"},
+    {"type": "Shape3D", "category": "3D", "color": "#0277BD", "param_name": "3D Subdivisions", "default_val": 64, "desc": "3D cube, sphere, cylinder & plane geometry generator"},
+    {"type": "Merge3D", "category": "3D", "color": "#00897B", "param_name": "3D Scene Blend", "default_val": 100, "desc": "Combines multiple 3D cameras, lights & objects into one scene"},
+    {"type": "PointLight3D", "category": "3D", "color": "#F57F17", "param_name": "Light Intensity", "default_val": 85, "desc": "3D scene lighting with shadow & intensity control"},
+    {"type": "Renderer3D", "category": "3D", "color": "#283593", "param_name": "Supersampling AA", "default_val": 80, "desc": "Renders 3D scene camera view back into 2D 4K output"},
+    {"type": "Transform", "category": "2D", "color": "#2980B9", "param_name": "2D Zoom Scale", "default_val": 100, "desc": "2D Position, Zoom, Rotation, Anchor & Flip"},
+    {"type": "ColorCorrector", "category": "Color", "color": "#8E44AD", "param_name": "Node Gain Boost", "default_val": 60, "desc": "Node-based Hue, Saturation, Contrast & Gain"},
+    {"type": "OpticalFlow", "category": "Retime", "color": "#16A085", "param_name": "Motion Vector Smooth", "default_val": 95, "desc": "Motion-estimated frame interpolation for silky smooth motion"},
+    {"type": "Merge", "category": "Composite", "color": "#D35400", "param_name": "Foreground Opacity", "default_val": 100, "desc": "Combines Foreground over Background with blend modes"},
+    {"type": "Blur / Glow", "category": "Filter", "color": "#2C3E50", "param_name": "Glow Bloom Intensity", "default_val": 45, "desc": "Gaussian blur and cinematic highlight bloom"},
+    {"type": "DeltaKeyer", "category": "Matte", "color": "#27AE60", "param_name": "Key Matte Clean", "default_val": 80, "desc": "Clean green/blue screen chroma key extraction"},
+    {"type": "Text+", "category": "Generator", "color": "#C0392B", "param_name": "3D Extrusion Depth", "default_val": 40, "desc": "3D extruded vector title & anime caption typography"},
+    {"type": "Tracker", "category": "Tracking", "color": "#546E7A", "param_name": "Track Confidence", "default_val": 90, "desc": "Point & planar motion tracking for callouts"},
 ]
 
 DEFAULT_STATE = {
     "media_pool": [],
     "active_clip": None,
-    "cursor_tool": "select",  # "select", "razor", "trim"
+    "preview_mode": "3d_mesh",  # "3d_mesh" or "real_video"
+    "cursor_tool": "select",
     "selected_item": "3D Mesh Plane",
     "playhead_sec": 0.0,
     "is_playing": False,
@@ -58,16 +68,17 @@ DEFAULT_STATE = {
     "speed_pct": 100.0,
     "markers": [],
     "timeline_cuts": [],
-    "keyframes": [],  # List of {"time": float, "pos_z": float, "rot_y": float, "pin_x": float, "pin_y": float}
+    "keyframes": [],
     "fusion_nodes": [
-        {"id": 1, "type": "MediaIn1", "category": "I/O", "color": "#3A3A40", "enabled": True, "desc": "Source Timeline Clip Input"},
-        {"id": 2, "type": "ImagePlane3D", "category": "3D", "color": "#00695C", "enabled": True, "desc": "Maps clip onto 3D X/Y/Z plane"},
-        {"id": 3, "type": "PuppetPin3D", "category": "3D Mesh", "color": "#AD1457", "enabled": True, "desc": "3D Mesh Puppet Pin Deformation"},
-        {"id": 4, "type": "Renderer3D", "category": "3D", "color": "#283593", "enabled": True, "desc": "Renders 3D space through Camera3D"},
-        {"id": 5, "type": "4K UltraSmooth AI", "category": "Custom AI", "color": "#D32F2F", "enabled": True, "desc": "3840x2160 4K Upscale + 60fps Optical Flow Smooth"},
-        {"id": 6, "type": "MediaOut1", "category": "I/O", "color": "#3A3A40", "enabled": True, "desc": "Final Timeline Output"},
+        {"id": 1, "type": "MediaIn1", "category": "I/O", "color": "#3A3A40", "enabled": True, "param_name": "Input Gain", "param_val": 100, "desc": "Source Timeline Clip Input"},
+        {"id": 2, "type": "ImagePlane3D", "category": "3D", "color": "#00695C", "enabled": True, "param_name": "3D Plane Depth Scale", "param_val": 100, "desc": "Maps clip onto 3D X/Y/Z plane"},
+        {"id": 3, "type": "PuppetPin3D", "category": "3D Mesh", "color": "#AD1457", "enabled": True, "param_name": "Mesh Bend Stiffness", "param_val": 75, "desc": "3D Mesh Puppet Pin Deformation"},
+        {"id": 4, "type": "Blur / Glow", "category": "Filter", "color": "#2C3E50", "enabled": True, "param_name": "Glow Bloom Intensity", "param_val": 45, "desc": "Cinematic highlight bloom & glow"},
+        {"id": 5, "type": "Renderer3D", "category": "3D", "color": "#283593", "enabled": True, "param_name": "Supersampling AA", "param_val": 80, "desc": "Renders 3D space through Camera3D"},
+        {"id": 6, "type": "4K UltraSmooth AI", "category": "Custom AI", "color": "#D32F2F", "enabled": True, "param_name": "4K Sharpness & Smooth", "param_val": 90, "desc": "3840x2160 4K Upscale + 60fps Optical Flow Smooth"},
+        {"id": 7, "type": "MediaOut1", "category": "I/O", "color": "#3A3A40", "enabled": True, "param_name": "Output Bitrate %", "param_val": 100, "desc": "Final Timeline Output"},
     ],
-    "selected_node_id": 3,
+    "selected_node_id": 6,
     "ultra_4k_enabled": True,
     "smooth_60fps_enabled": True,
     "puppet_pins": [
@@ -92,11 +103,11 @@ DEFAULT_STATE = {
     "normalize_audio": True,
     "export_res": "3840x2160 (4K UltraSmooth 60fps)",
     "export_codec": "H.265 (HEVC 10-bit)",
+    "render_history": [],
 }
 
 
 def main(page: ft.Page):
-    # Tuned for ZTE Blade A36 smooth 60fps touch response & low RAM footprint
     page.title = "Resolve Studio 3D Pro"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = "#121214"
@@ -105,7 +116,7 @@ def main(page: ft.Page):
 
     state = copy.deepcopy(DEFAULT_STATE)
     try:
-        saved = page.client_storage.get("resolve_pro_v3")
+        saved = page.client_storage.get("resolve_pro_v4")
         if isinstance(saved, dict):
             for k, v in saved.items():
                 if k in state:
@@ -116,7 +127,7 @@ def main(page: ft.Page):
 
     def persist_state():
         try:
-            page.client_storage.set("resolve_pro_v3", state)
+            page.client_storage.set("resolve_pro_v4", state)
         except Exception:
             pass
 
@@ -147,6 +158,20 @@ def main(page: ft.Page):
         snack.open = True
         page.update()
 
+    # --- REAL VIDEO PLAYER (WHEN AVAILABLE & CLIP LOADED) ---
+    real_video_player = None
+    if HAS_FLET_VIDEO:
+        real_video_player = fv.Video(
+            playlist=[],
+            playlist_mode=fv.PlaylistMode.SINGLE,
+            fill_color="#0B0B0E",
+            aspect_ratio=16 / 9,
+            volume=state["volume"],
+            autoplay=False,
+            filter_quality=ft.FilterQuality.HIGH,
+            height=106,
+        )
+
     # --- KEYFRAME INTERPOLATION ENGINE ---
     def apply_keyframes_at_time(t: float):
         kfs = sorted(state["keyframes"], key=lambda k: k["time"])
@@ -163,7 +188,6 @@ def main(page: ft.Page):
                 if k1["time"] <= t <= k2["time"]:
                     span = max(0.001, k2["time"] - k1["time"])
                     alpha = (t - k1["time"]) / span
-                    # Smooth ease-in-out interpolation
                     smooth_a = alpha * alpha * (3 - 2 * alpha)
                     chosen = {
                         "pos_z": round(k1["pos_z"] + (k2["pos_z"] - k1["pos_z"]) * smooth_a, 1),
@@ -176,52 +200,6 @@ def main(page: ft.Page):
         state["rot_y"] = chosen["rot_y"]
         active_pin = next((p for p in state["puppet_pins"] if p["id"] == state["selected_pin_id"]), None)
         if active_pin:
-            active_pin["x"] = chosen["pin_x"]
-            active_pin["y"] = chosen["pin_y"]
 
-    def add_keyframe_at_playhead():
-        t = round(state["playhead_sec"], 1)
-        active_pin = next((p for p in state["puppet_pins"] if p["id"] == state["selected_pin_id"]), {"x": 0.0, "y": 0.0})
-        state["keyframes"] = [k for k in state["keyframes"] if abs(k["time"] - t) > 0.05]
-        state["keyframes"].append({
-            "time": t,
-            "pos_z": state["pos_z"],
-            "rot_y": state["rot_y"],
-            "pin_x": active_pin["x"],
-            "pin_y": active_pin["y"],
-        })
-        persist_state()
-        refresh_current_page()
-        notify(f"Added 3D Keyframe ◆ at {t}s!", "#F57F17")
 
-    # --- AUTO BEAT MARKER & ANIME VELOCITY PRESETS ---
-    def generate_auto_beat_markers():
-        bpm = safe_int(state.get("bpm", 128), 128)
-        beat_interval = 60.0 / bpm
-        start_t = state["trim_start"]
-        end_t = max(start_t + 1.0, state["trim_end"])
-
-        new_markers = [m for m in state["markers"] if not m.get("is_beat")]
-        t = start_t
-        beat_idx = 1
-        while t <= end_t and beat_idx <= 64:
-            new_markers.append({
-                "time": round(t, 2),
-                "label": f"B{beat_idx}",
-                "is_beat": True,
-            })
-            t += beat_interval
-            beat_idx += 1
-
-        state["markers"] = new_markers
-        persist_state()
-        refresh_current_page()
-        notify(f"Synced {beat_idx - 1} Beat Markers at {bpm} BPM!", "#00897B")
-
-    def apply_beat_3d_shake_preset():
-        if not any(m.get("is_beat") for m in state["markers"]):
-            generate_auto_beat_markers()
-        beats = [m["time"] for m in state["markers"] if m.get("is_beat")][:12]
-        state["keyframes"] = []
-        for idx, bt in enumerate(beats):
-            swing = 28.0 if idx % 2 == 0 else -28.0
+            
