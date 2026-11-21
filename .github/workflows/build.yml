@@ -15,7 +15,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -26,18 +26,19 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: "3.27.4"
           channel: "stable"
 
       - name: Install Flet
-        run: pip install --upgrade flet
+        run: pip install "flet==0.27.6"
 
       - name: Build APK
-        run: yes | flet build apk --yes || yes | flet build apk
+        run: flet build apk --yes
         env:
           CI: true
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Resolve-Studio-Mobile-APK
+          name: Resolve-Studio-3D-Pro-APK
           path: build/apk/*.apk
