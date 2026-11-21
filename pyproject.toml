@@ -1,0 +1,13 @@
+[project]
+name = "resolve-studio-mobile"
+version = "1.2.0"
+description = "3D & 4K Mobile Video Studio modeled after DaVinci Resolve"
+requires-python = ">=3.10"
+dependencies = [
+    "flet>=0.25.0",
+    "flet-video",
+]
+
+[tool.flet]
+org = "com.resolvestudio"
+product = "Resolve Studio Mobile"
