@@ -1,18 +1,9 @@
 import copy
 import math
-import os
 import re
 import threading
 import time
 import flet as ft
-
-# Safe import for real Android video playback (falls back cleanly if unavailable)
-try:
-    import flet_video as fv
-    HAS_FLET_VIDEO = True
-except ImportError:
-    fv = None
-    HAS_FLET_VIDEO = False
 
 
 CLIP_COLORS = {
@@ -57,7 +48,6 @@ FUSION_NODE_CATALOG = [
 DEFAULT_STATE = {
     "media_pool": [],
     "active_clip": None,
-    "preview_mode": "3d_mesh",  # "3d_mesh" or "real_video"
     "cursor_tool": "select",
     "selected_item": "3D Mesh Plane",
     "playhead_sec": 0.0,
@@ -116,7 +106,7 @@ def main(page: ft.Page):
 
     state = copy.deepcopy(DEFAULT_STATE)
     try:
-        saved = page.client_storage.get("resolve_pro_v4")
+        saved = page.client_storage.get("resolve_pro_v5")
         if isinstance(saved, dict):
             for k, v in saved.items():
                 if k in state:
@@ -127,7 +117,7 @@ def main(page: ft.Page):
 
     def persist_state():
         try:
-            page.client_storage.set("resolve_pro_v4", state)
+            page.client_storage.set("resolve_pro_v5", state)
         except Exception:
             pass
 
@@ -158,20 +148,6 @@ def main(page: ft.Page):
         snack.open = True
         page.update()
 
-    # --- REAL VIDEO PLAYER (WHEN AVAILABLE & CLIP LOADED) ---
-    real_video_player = None
-    if HAS_FLET_VIDEO:
-        real_video_player = fv.Video(
-            playlist=[],
-            playlist_mode=fv.PlaylistMode.SINGLE,
-            fill_color="#0B0B0E",
-            aspect_ratio=16 / 9,
-            volume=state["volume"],
-            autoplay=False,
-            filter_quality=ft.FilterQuality.HIGH,
-            height=106,
-        )
-
     # --- KEYFRAME INTERPOLATION ENGINE ---
     def apply_keyframes_at_time(t: float):
         kfs = sorted(state["keyframes"], key=lambda k: k["time"])
@@ -200,6 +176,23 @@ def main(page: ft.Page):
         state["rot_y"] = chosen["rot_y"]
         active_pin = next((p for p in state["puppet_pins"] if p["id"] == state["selected_pin_id"]), None)
         if active_pin:
+            active_pin["x"] = chosen["pin_x"]
+            active_pin["y"] = chosen["pin_y"]
+
+    def add_keyframe_at_playhead():
+        t = round(state["playhead_sec"], 1)
+        active_pin = next((p for p in state["puppet_pins"] if p["id"] == state["selected_pin_id"]), {"x": 0.0, "y": 0.0})
+        state["keyframes"] = [k for k in state["keyframes"] if abs(k["time"] - t) > 0.05]
+        state["keyframes"].append({
+            "time": t,
+            "pos_z": state["pos_z"],
+            "rot_y": state["rot_y"],
+            "pin_x": active_pin["x"],
+            "pin_y": active_pin["y"],
+        })
+        persist_state()
+        refresh_current_page()
+        notify(f"Added 3D Keyframe ◆ at {t}s!", "#F57F17")
 
 
             
